@@ -3,76 +3,89 @@ import random
 from Crypto.Util import number
 
 letters = r"""abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890~!@#$%^&*()_+{}|-=[]\:"<>?;',./` """
-key_bits = 16
+
+key_bits  = 16
 prime_bits = 8
-seed = random.Random(123456789)
 
-st.title("Diffie Hellman")
+SEED = 123456789
+rng_params = random.Random(SEED)
+def randfunc(n: int) -> bytes:
+    return rng_params.getrandbits(8 * n).to_bytes(n, "big")
+rng_private = random.SystemRandom()
 
-if st.session_state.get("my_key"):
-    my_key = st.session_state["my_key"]
-    parameter = st.session_state["parameter"]
-    generator = st.session_state["generator"]
-    prime = st.session_state["prime"]
+if "p_" not in st.session_state:
+    # same on both ports
+    p_ = number.getPrime(prime_bits, randfunc=randfunc)
+    g_ = 2 + (rng_params.getrandbits(key_bits) % max(1, p_ - 3))
+
+    # different per session / per port
+    a_ = 2 + rng_private.randrange(max(1, p_ - 3))
+
+    A_ = pow(g_, a_, p_)
+    st.session_state.update({"p_": p_, "g_": g_, "a_": a_, "A_": A_})
 else:
-    parameter = seed.getrandbits(key_bits)
-    generator = seed.getrandbits(key_bits)
-    prime = number.getPrime(prime_bits)
-    my_key = (generator ** prime) % parameter
+    p_ = st.session_state["p_"]
+    g_ = st.session_state["g_"]
+    a_ = st.session_state["a_"]
+    A_ = st.session_state["A_"]
 
-    st.session_state["my_key"] = my_key
-    st.session_state["prime"] = prime
-    st.session_state["parameter"] = parameter
-    st.session_state["generator"] = generator
+st.title("Diffie Hellman Demo")
+st.subheader("Parameters")
 
-st.write("Your key")
-st.code(my_key)
-their_key = st.number_input(label= "Their Key",step=1, placeholder="123456", value=None)
+st.write("p (prime modulus)"); st.code(p_)
+st.write("g (generator)");     st.code(g_)
 
+st.write("Your public key (A)"); st.code(A_)
+their_key = st.number_input("Their public key (B)", step=1, min_value=0, value=0)
 
-def decryption(m, key):
-    backset = key % len(letters)
-    decrypted = ""
-
-    for i in range(len(m)):
-        new = letters.index(m[i]) - backset
-        decrypted += letters[new]
-
-    return decrypted
-
-def encryption(n, key):
+def derive_shared(B):
+    if B < 2 or B > p_ - 2:
+        return None
+    return pow(int(B), a_, p_)
+def encrypt(msg, key):
     offset = key % len(letters)
-    encrypted = ""
-    
-    for i in range(len(n)):
-        asi = (letters.index(n[i]) + offset) % len(letters)
-        encrypted += letters[asi]
-    return encrypted
+    out = []
+    for ch in msg:
+        if ch in letters:
+            i = (letters.index(ch) + offset) % len(letters)
+            out.append(letters[i])
+        else:
+            out.append(ch)  # pass-through unknown characters
+    return "".join(out)
 
+def decrypt(msg, key):
+    back = key % len(letters)
+    out = []
+    for ch in msg:
+        if ch in letters:
+            i = (letters.index(ch) - back) % len(letters)
+            out.append(letters[i])
+        else:
+            out.append(ch)
+    return "".join(out)
 
-col1,col2 = st.columns(2)
-
+col1, col2 = st.columns(2)
 send_ms = col1.text_area("Enter original message here...")
 recv_ms = col2.text_area("Enter encoded message here...")
 
-send_btn = col1.button("Send", width="stretch")
-recv_btn = col2.button("Recieve", width="stretch")
+send_btn = col1.button("Send")
+recv_btn = col2.button("Receive")
 
 
 if send_btn:
-    if their_key:
-        key = (their_key**prime) % parameter
-        enc = encryption(send_ms, key)
+    shared = derive_shared(their_key)
+    if shared is None:
+        st.warning("Please enter a valid peer public key (2 ≤ B ≤ p-2).")
+    else:
+        enc = encrypt(send_ms, shared)
         st.write("Encrypted message:")
         st.code(enc)
-    else:
-        st.warning("The Other person's key is required")
 
 if recv_btn:
-    if their_key:
-        key = (their_key**prime) % parameter
-        dec = decryption(recv_ms, key)
-        st.write("Decrypted message:")
-        st.write(dec)
+    shared = derive_shared(their_key)
+    if shared is None:
+        st.warning("Please enter a valid peer public key (2 ≤ B ≤ p-2).")
     else:
-        st.warning("The Other person's key is required")
+        dec = decrypt(recv_ms, shared)
+        st.write("Decrypted message:")
+        st.code(dec)
