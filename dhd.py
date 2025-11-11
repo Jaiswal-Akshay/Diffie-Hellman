@@ -36,12 +36,13 @@ st.write("p (prime modulus)"); st.code(p_)
 st.write("g (generator)");     st.code(g_)
 
 st.write("Your public key (A)"); st.code(A_)
-their_key = st.number_input("Their public key (B)", step=1, min_value=0, value=0)
+their_key = st.number_input("Their public key (B)", step=1, min_value=0, value=None, placeholder=0)
 
 def derive_shared(B):
     if B < 2 or B > p_ - 2:
         return None
     return pow(int(B), a_, p_)
+
 def encrypt(msg, key):
     offset = key % len(letters)
     out = []
